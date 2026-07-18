@@ -1,0 +1,85 @@
+:root {
+  --dg-primary: #16A34A;
+  --dg-primary-hover: #15803D;
+  --dg-primary-light: #DCFCE7;
+  --dg-primary-dark: #14532D;
+  --dg-accent: #22C55E;
+  --dg-background: #F8FAFC;
+  --dg-surface: #FFFFFF;
+  --dg-border: #E5E7EB;
+  --dg-text-primary: #111827;
+  --dg-text-secondary: #6B7280;
+  --dg-success: #16A34A;
+  --dg-warning: #F59E0B;
+  --dg-danger: #DC2626;
+  --dg-info: #2563EB;
+
+  /* Bootstrap overrides so bg-primary / btn-primary / badges pick up the palette */
+  --bs-primary: var(--dg-primary);
+  --bs-primary-rgb: 22, 163, 74;
+  --bs-success: var(--dg-success);
+  --bs-warning: var(--dg-warning);
+  --bs-danger: var(--dg-danger);
+  --bs-info: var(--dg-info);
+  --bs-body-bg: var(--dg-background);
+  --bs-body-color: var(--dg-text-primary);
+  --bs-border-color: var(--dg-border);
+}
+
+[data-bs-theme='dark'] {
+  --dg-background: #0F172A;
+  --dg-surface: #1E293B;
+  --dg-border: #334155;
+  --dg-text-primary: #F1F5F9;
+  --dg-text-secondary: #94A3B8;
+  --bs-body-bg: var(--dg-background);
+  --bs-body-color: var(--dg-text-primary);
+}
+
+.btn-primary {
+  background-color: var(--dg-primary);
+  border-color: var(--dg-primary);
+}
+.btn-primary:hover {
+  background-color: var(--dg-primary-hover);
+  border-color: var(--dg-primary-hover);
+}
+
+.datagrid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--dg-surface);
+  border-bottom: 2px solid var(--dg-border);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--dg-text-secondary);
+}
+
+.datagrid-table td,
+.datagrid-table th {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.datagrid-table tbody tr {
+  height: var(--dg-row-height, 44px);
+}
+
+.datagrid-table td:first-child,
+.datagrid-table th:first-child {
+  position: sticky;
+  left: 0;
+  background: inherit;
+  z-index: 1;
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
