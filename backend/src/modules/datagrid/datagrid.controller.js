@@ -1,8 +1,11 @@
 import asyncHandler from '../../core/utils/asyncHandler.js';
 import ApiResponse from '../../core/utils/ApiResponse.js';
 import DataGridService from './datagrid.service.js';
-import { getResource } from './datagrid.registry.js';
-import { streamCsv, streamExcel, sendJson } from './datagrid.export.js';
+import { getResource, listResources } from './datagrid.registry.js';
+import { writeExportFile, contentTypeFor, streamFileDownload } from './datagrid.export.js';
+import ExportHistoryService from '../exports/exportHistory.service.js';
+
+const exportHistoryService = new ExportHistoryService();
 
 /**
  * Every handler is resource-agnostic: `req.params.resource` selects which
@@ -61,11 +64,28 @@ export const exportRecords = asyncHandler(async (req, res) => {
     .filter(([, f]) => f.select !== false)
     .map(([key, f]) => ({ key: f.path, label: f.label || key }));
 
-  const filename = `${req.params.resource}-export-${Date.now()}`;
+  const friendlyBase = `${req.params.resource}-export-${Date.now()}`;
+  const { storedFilename, filePath, sizeBytes, extension } = await writeExportFile(req.query.format, rows, columns);
+  const filename = `${friendlyBase}.${extension}`;
+  const scope = req.query.ids ? 'selected' : (req.query.search || req.query.filters ? 'filtered' : 'all');
 
-  if (req.query.format === 'xlsx') return streamExcel(res, filename, rows, columns);
-  if (req.query.format === 'json') return sendJson(res, filename, rows);
-  return streamCsv(res, filename, rows, columns);
+  await exportHistoryService.record({
+    resource: req.params.resource,
+    format: req.query.format,
+    filename,
+    storedFilename,
+    scope,
+    rowCount: rows.length,
+    sizeBytes,
+    requestedBy: req.user?.id,
+    query: { search: req.query.search, filters: req.query.filters, sort: req.query.sort },
+  });
+
+  streamFileDownload(res, filePath, filename, contentTypeFor(req.query.format));
+});
+
+export const listDataGridResources = asyncHandler(async (req, res) => {
+  new ApiResponse(200, listResources()).send(res);
 });
 
 export const getResourceMeta = asyncHandler(async (req, res) => {
@@ -95,4 +115,5 @@ export default {
   bulkUpdate,
   exportRecords,
   getResourceMeta,
+  listDataGridResources,
 };

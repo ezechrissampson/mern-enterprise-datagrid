@@ -3,6 +3,8 @@ import morgan from 'morgan';
 import { applySecurity } from './middlewares/security.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js';
 import { buildDataGridRouter } from './modules/datagrid/datagrid.routes.js';
+import { buildSavedViewRouter } from './modules/savedViews/savedView.routes.js';
+import { buildExportHistoryRouter } from './modules/exports/exportHistory.routes.js';
 import { demoAuthenticate, demoRowScope } from './modules/example/demoAuth.js';
 import env from './config/env.js';
 
@@ -28,6 +30,9 @@ export function createApp() {
     authenticate: demoAuthenticate,
     buildRowScope: demoRowScope,
   }));
+
+  app.use('/api/v1/saved-views', buildSavedViewRouter({ authenticate: demoAuthenticate }));
+  app.use('/api/v1/exports', buildExportHistoryRouter({ authenticate: demoAuthenticate }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

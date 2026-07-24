@@ -6,6 +6,10 @@ import apiClient from './apiClient.js';
  * only `resource` and the query params change.
  */
 export const datagridService = {
+  listResources({ signal } = {}) {
+    return apiClient.get('/datagrid/resources', { signal }).then((r) => r.data);
+  },
+
   getMeta(resource, { signal } = {}) {
     return apiClient.get(`/datagrid/${resource}/meta`, { signal }).then((r) => r.data);
   },

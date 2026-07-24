@@ -8,11 +8,18 @@ Authentication and Authorization.
 > **Status**: This repository ships a real, working core (backend query engine +
 > generic REST API + security middleware, and a config-driven React grid with
 > pagination, sorting, filtering, search, column management, export, bulk
-> actions, and row actions). Some items in the original spec — persisted
-> shared "Saved Views", CSV/Excel **import**, drag-to-reorder columns, group-by
-> UI, infinite scroll, and Redis caching — are architected for but stubbed or
-> left as extension points. See [Roadmap](#roadmap--extension-guide) for exactly
-> what's implemented vs. what's next and where to plug it in.
+> actions, and row actions), **plus server-side Saved Views and an Export
+> History system with re-downloadable files**. A few items from the original
+> spec — CSV/Excel **import**, drag-to-reorder columns, group-by UI, infinite
+> scroll, and Redis caching — are architected for but left as extension
+> points. See [Roadmap](#roadmap--extension-guide) for exactly what's
+> implemented vs. what's next and where to plug it in.
+>
+> There is no "Settings" page — it added no real functionality for a
+> reusable module like this, so it was removed. Configuration lives in code
+> (`fieldsConfig` on the backend, grid `config` objects on the frontend),
+> which is more appropriate for a module meant to be integrated into a host
+> app that already has its own settings/admin area.
 
 ---
 
@@ -50,6 +57,11 @@ Authentication and Authorization.
 - Bulk delete, bulk update (e.g. archive), bulk export (native), bulk custom actions (via callback)
 - Row actions (view/edit/delete/duplicate/custom) with permission-aware rendering and confirm dialogs
 - Export: CSV (streamed), Excel (streamed via ExcelJS), JSON — for current filter set, or selected rows only
+- **Export History**: every generated export is written to disk and logged (resource, format, row count, size,
+  requester, scope) — the *original file* can be re-downloaded later from the Exports page without regenerating it
+- **Saved Views**: server-side persisted filter/sort/column/density/page-size layouts per resource, personal or
+  shared, with a designated default view per user; "Save view" in the grid toolbar, manage/apply from the
+  Saved Views page
 - Loading skeletons, empty states, error states with retry
 - Column/filter/sort/density preferences persisted to `localStorage` per grid (`storageKey`)
 - OWASP-aligned backend security stack (see [Security Features](#security-features))
@@ -57,13 +69,13 @@ Authentication and Authorization.
 
 **Architected with a clear extension point, not yet fully implemented (see Roadmap):**
 
-- Saved Views persisted server-side & shared between users (currently: local persistence only)
 - CSV/Excel **import** with preview/validation/rollback
 - Drag-to-reorder columns and column pinning UI (state fields exist: `columnOrder`, `pinnedColumns`)
 - Group-by / collapsible group rows
 - Virtualized rendering for very large pages (react-window integration point noted inline)
 - Redis caching of list queries (env var + client wiring point provided)
 - Audit logging (a call-site is documented in the service layer)
+- Export file retention/cleanup (old files currently persist indefinitely on disk — see Production Checklist)
 
 ---
 
@@ -105,6 +117,19 @@ mern-enterprise-datagrid/
 │   │   │   │   ├── datagrid.routes.js
 │   │   │   │   ├── datagrid.validator.js
 │   │   │   │   └── datagrid.export.js
+│   │   │   ├── savedViews/             # Server-side Saved Views
+│   │   │   │   ├── savedView.model.js
+│   │   │   │   ├── savedView.repository.js
+│   │   │   │   ├── savedView.service.js
+│   │   │   │   ├── savedView.controller.js
+│   │   │   │   └── savedView.routes.js
+│   │   │   ├── exports/                # Export History (file storage + re-download)
+│   │   │   │   ├── storage.js
+│   │   │   │   ├── exportHistory.model.js
+│   │   │   │   ├── exportHistory.repository.js
+│   │   │   │   ├── exportHistory.service.js
+│   │   │   │   ├── exportHistory.controller.js
+│   │   │   │   └── exportHistory.routes.js
 │   │   │   └── example/                # Example integration — delete in real projects
 │   │   │       ├── employee.model.js
 │   │   │       ├── employee.resource.js
@@ -113,6 +138,7 @@ mern-enterprise-datagrid/
 │   │   │   └── seed.js
 │   │   ├── app.js
 │   │   └── server.js
+│   ├── storage/exports/                # Generated export files live here (gitignored)
 │   ├── package.json
 │   └── .env.example
 └── frontend/
@@ -135,13 +161,23 @@ mern-enterprise-datagrid/
     │   │   └── useDebounce.js
     │   ├── services/
     │   │   ├── apiClient.js
-    │   │   └── datagridService.js
+    │   │   ├── datagridService.js
+    │   │   ├── savedViewService.js
+    │   │   └── exportHistoryService.js
     │   ├── utils/
     │   │   ├── constants.js
     │   │   └── formatters.js
     │   ├── config/
-    │   │   └── example.config.js       # THE FILE YOU WRITE PER TABLE
+    │   │   ├── example.config.js       # THE FILE YOU WRITE PER TABLE
+    │   │   └── registry.js             # Maps resource key -> grid config, for pages that need to resolve it
     │   ├── pages/                       # Example pages — replace with your app's routes
+    │   │   ├── DashboardPage.jsx
+    │   │   ├── DataGridPage.jsx
+    │   │   ├── SavedViewsPage.jsx
+    │   │   ├── ExportsPage.jsx
+    │   │   ├── NotFoundPage.jsx
+    │   │   ├── ForbiddenPage.jsx
+    │   │   └── StatusPages.jsx
     │   └── styles/theme.css            # Palette as CSS variables
     ├── package.json
     ├── vite.config.js
@@ -185,6 +221,8 @@ contains app-specific logic.
 ```js
 // your existing app.js
 import { buildDataGridRouter } from './path/to/module/datagrid.routes.js';
+import { buildSavedViewRouter } from './path/to/module/savedView.routes.js';
+import { buildExportHistoryRouter } from './path/to/module/exportHistory.routes.js';
 import { authenticate } from '../auth/authenticate.js';   // YOUR existing middleware
 import { buildTenantScope } from '../auth/scope.js';       // YOUR row-level scope (optional)
 
@@ -192,7 +230,17 @@ app.use('/api/v1/datagrid', buildDataGridRouter({
   authenticate,          // required: your JWT/session middleware, sets req.user
   buildRowScope: buildTenantScope, // optional: returns a Mongo filter merged into every query
 }));
+
+// Saved Views and Export History are intentionally separate small modules
+// (not the generic resource registry) because each has its own ownership/
+// sharing rules that don't fit the generic CRUD shape.
+app.use('/api/v1/saved-views', buildSavedViewRouter({ authenticate }));
+app.use('/api/v1/exports', buildExportHistoryRouter({ authenticate }));
 ```
+
+`req.user.id` is required for Saved Views (ownership) and Export History
+(who generated/can re-download a file) — make sure your `authenticate`
+middleware sets it, in addition to `req.user.permissions`.
 
 `req.user.permissions` (an array of strings, or `['*']` for superadmin) is the
 contract the built-in `requirePermission` middleware checks against. Adapt
@@ -350,6 +398,27 @@ All endpoints are namespaced under wherever you mount `buildDataGridRouter`
 Errors follow the same shape with `success: false` and a `code` (e.g.
 `BAD_REQUEST`, `FORBIDDEN`, `RATE_LIMITED`) instead of `data`.
 
+### Saved Views API (`/api/v1/saved-views`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/?resource=employees` | List views visible to the current user (their own + shared) for a resource |
+| POST | `/` | Create — `{ resource, name, isShared?, filters?, sort?, columnVisibility?, density?, pageSize? }` |
+| PATCH | `/:id` | Update (owner only) |
+| DELETE | `/:id` | Delete (owner only) |
+| POST | `/:id/default` | Set as this user's default view for that resource (owner only; unsets any prior default) |
+
+### Export History API (`/api/v1/exports`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/?page=&limit=&resource=` | List past exports — the current user's own, unless `req.user.isSuperAdmin` or `permissions` includes `'*'` |
+| GET | `/:id/download` | Re-download the original generated file (owner or admin only) |
+| DELETE | `/:id` | Delete the history record **and** the underlying stored file (owner or admin only) |
+
+Every export triggered through `GET /:resource/export` on the DataGrid API
+automatically writes an Export History record — no extra call needed.
+
 ---
 
 ## Frontend Components
@@ -442,8 +511,9 @@ Implemented in `middlewares/security.js`, `permission.js`, `errorHandler.js`, an
 - [ ] Add compound indexes for every filterable/sortable field per registered collection
 - [ ] Set `CORS_ORIGINS` to your real frontend origin(s) only
 - [ ] Set conservative `RATE_LIMIT_MAX` / `EXPORT_MAX_ROWS` for your traffic profile
+- [ ] Point `EXPORT_STORAGE_DIR` at a persistent mounted volume (or swap `modules/exports/storage.js` for S3/GCS) — files written to the container's local disk are lost on redeploy otherwise
+- [ ] Add a scheduled job to prune old rows in `ExportHistory` + their stored files past your retention window (not included — genuinely policy-specific)
 - [ ] Wire audit logging into `DataGridService` create/update/delete/bulk methods
-- [ ] Decide and implement your Saved Views persistence (server-side, per the Roadmap)
 - [ ] Load-test list endpoints against production-scale collections; add Redis caching if needed
 - [ ] Confirm `select: false` is set on every sensitive field (password hashes, tokens, etc.) in every `fieldsConfig`
 - [ ] Run `npm audit` on both `backend` and `frontend` before shipping
@@ -457,13 +527,14 @@ each is genuinely application-specific:
 
 | Feature | Where to add it |
 |---|---|
-| **Server-side Saved Views** (shared across users) | New `savedView.model.js` + a `datagrid.savedviews.routes.js` following the exact same routes→controller→service→repository pattern as `modules/datagrid/`; frontend already has all the state (`state.filters/sort/columnVisibility/density`) needed to serialize |
 | **Import (CSV/Excel)** | New route `POST /:resource/import` using `fast-csv`/`ExcelJS` to parse, `express-validator` per-row, and a dry-run/preview mode before committing via `bulkUpdate`-style writes |
 | **Column drag-to-reorder** | `state.columnOrder` already exists in `useDataGrid`; wire a drag library (e.g. `@dnd-kit/sortable`) in `DataGridToolbar`/table headers and call `setColumnOrder` |
 | **Group-by / collapsible groups** | TanStack Table supports grouping natively; add `getGroupedRowModel()` and a `groupBy` param that the Query Builder turns into an aggregation pipeline (`$group`) instead of `find()` |
 | **Infinite scroll / virtualized rows** | Swap manual pagination for `@tanstack/react-virtual` over an ever-growing `data` array fetched via `limit`/`skip` continuation |
 | **Redis caching** | Cache-aside in `DataGridService.list()`, see [Performance Optimizations](#performance-optimizations) |
 | **Audit logging** | Call your logger at the top of `DataGridService.create/update/remove/bulkUpdate/bulkDelete` |
+| **Export file retention/cleanup** | A cron/worker that queries `ExportHistory` for records past a TTL, deletes the file via `deleteStoredFile()`, then deletes the record |
+| **S3/GCS-backed export storage** | Reimplement `ensureExportsDir`/`resolveStoredPath`/`deleteStoredFile` in `modules/exports/storage.js` against your bucket SDK — every call site already goes through these three functions |
 
 ---
 

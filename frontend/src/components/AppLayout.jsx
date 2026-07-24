@@ -6,7 +6,6 @@ const NAV_ITEMS = [
   { to: '/datagrid/employees', label: 'Employees Grid', icon: 'bi-table' },
   { to: '/saved-views', label: 'Saved Views', icon: 'bi-bookmark' },
   { to: '/exports', label: 'Exports', icon: 'bi-download' },
-  { to: '/settings', label: 'Settings', icon: 'bi-gear' },
 ];
 
 /**

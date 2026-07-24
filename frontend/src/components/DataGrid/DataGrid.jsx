@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-table';
 import useDataGrid from '../../hooks/useDataGrid.js';
 import datagridService from '../../services/datagridService.js';
+import savedViewService from '../../services/savedViewService.js';
 import DataGridToolbar from './DataGridToolbar.jsx';
 import { DataGridFilters, FilterChips } from './DataGridFilters.jsx';
 import BulkActionsBar from './BulkActionsBar.jsx';
@@ -33,6 +34,7 @@ export function DataGrid({ config, userPermissions, onRowAction, onBulkAction })
   const grid = useDataGrid(config);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [confirmState, setConfirmState] = useState(null); // { type: 'row'|'bulk', action, row? }
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
 
   const hasPermission = (perm) => !userPermissions || userPermissions.includes('*') || userPermissions.includes(perm);
 
@@ -157,6 +159,20 @@ export function DataGrid({ config, userPermissions, onRowAction, onBulkAction })
     window.open(datagridService.exportUrl(config.resource, params), '_blank', 'noopener');
   }
 
+  async function handleSaveView(name, isShared) {
+    await savedViewService.create({
+      resource: config.resource,
+      name,
+      isShared,
+      filters: grid.state.filters,
+      sort: grid.state.sort,
+      columnVisibility: grid.state.columnVisibility,
+      density: grid.state.density,
+      pageSize: grid.state.limit,
+    });
+    setSaveViewOpen(false);
+  }
+
   const activeFilterCount = Object.keys(grid.state.filters).length;
 
   return (
@@ -184,6 +200,7 @@ export function DataGrid({ config, userPermissions, onRowAction, onBulkAction })
         onExport={handleExport}
         canExport={hasPermission(config.permissions?.export)}
         selectionCount={grid.state.selection.length}
+        onSaveView={() => setSaveViewOpen(true)}
       />
 
       <DataGridFilters
@@ -259,6 +276,13 @@ export function DataGrid({ config, userPermissions, onRowAction, onBulkAction })
         onLimitChange={grid.setLimit}
       />
 
+      {saveViewOpen && (
+        <SaveViewDialog
+          onCancel={() => setSaveViewOpen(false)}
+          onSave={handleSaveView}
+        />
+      )}
+
       {confirmState && (
         <ConfirmDialog
           title={`Confirm ${confirmState.action.label}`}
@@ -291,6 +315,72 @@ function SortIndicator({ sort, columnId }) {
       <i className={`bi ${entry.desc ? 'bi-arrow-down' : 'bi-arrow-up'}`} />
       {sort.length > 1 && <sup>{idx + 1}</sup>}
     </span>
+  );
+}
+
+function SaveViewDialog({ onCancel, onSave }) {
+  const [name, setName] = useState('');
+  const [isShared, setIsShared] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(name.trim(), isShared);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to save view');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal d-block" tabIndex={-1} role="dialog" style={{ background: 'rgba(0,0,0,0.4)' }}>
+      <div className="modal-dialog modal-dialog-centered">
+        <form className="modal-content" onSubmit={submit}>
+          <div className="modal-header">
+            <h6 className="modal-title">Save current view</h6>
+            <button type="button" className="btn-close" onClick={onCancel} aria-label="Close" />
+          </div>
+          <div className="modal-body">
+            <label htmlFor="save-view-name" className="form-label small fw-semibold">View name</label>
+            <input
+              id="save-view-name"
+              type="text"
+              className="form-control form-control-sm mb-3"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Active Engineering employees"
+              autoFocus
+              required
+            />
+            <div className="form-check">
+              <input
+                type="checkbox"
+                className="form-check-input"
+                id="save-view-shared"
+                checked={isShared}
+                onChange={(e) => setIsShared(e.target.checked)}
+              />
+              <label className="form-check-label small" htmlFor="save-view-shared">
+                Share this view with everyone (otherwise it's only visible to you)
+              </label>
+            </div>
+            {error && <div className="alert alert-danger small mt-3 mb-0">{error}</div>}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={onCancel}>Cancel</button>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={saving || !name.trim()}>
+              {saving ? 'Saving…' : 'Save view'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

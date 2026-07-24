@@ -1,26 +1,46 @@
+import fs from 'fs';
 import { format as fastCsvFormat } from 'fast-csv';
 import ExcelJS from 'exceljs';
+import { ensureExportsDir, buildStoredFilename, resolveStoredPath } from '../exports/storage.js';
 
 /**
- * Streams rows as CSV directly to the HTTP response (memory-safe for large exports).
+ * Generates an export file on disk (instead of streaming straight to the
+ * HTTP response) so it can be recorded in Export History and re-downloaded
+ * later. The caller streams the resulting file back to the client.
  */
-export function streamCsv(res, filename, rows, columns) {
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+export async function writeExportFile(format, rows, columns) {
+  ensureExportsDir();
+  const extension = format === 'xlsx' ? 'xlsx' : format === 'json' ? 'json' : 'csv';
+  const storedFilename = buildStoredFilename(extension);
+  const filePath = resolveStoredPath(storedFilename);
 
-  const csvStream = fastCsvFormat({ headers: columns.map((c) => c.label) });
-  csvStream.pipe(res);
-  for (const row of rows) {
-    csvStream.write(columns.map((c) => flatten(row, c.key)));
+  if (format === 'xlsx') {
+    await writeExcelFile(filePath, rows, columns);
+  } else if (format === 'json') {
+    await fs.promises.writeFile(filePath, JSON.stringify(rows, null, 2), 'utf-8');
+  } else {
+    await writeCsvFile(filePath, rows, columns);
   }
-  csvStream.end();
+
+  const { size } = await fs.promises.stat(filePath);
+  return { storedFilename, filePath, sizeBytes: size, extension };
 }
 
-export async function streamExcel(res, filename, rows, columns) {
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+function writeCsvFile(filePath, rows, columns) {
+  return new Promise((resolve, reject) => {
+    const writeStream = fs.createWriteStream(filePath);
+    const csvStream = fastCsvFormat({ headers: columns.map((c) => c.label) });
+    csvStream.pipe(writeStream);
+    for (const row of rows) csvStream.write(columns.map((c) => flatten(row, c.key)));
+    csvStream.end();
+    writeStream.on('finish', resolve);
+    writeStream.on('error', reject);
+    csvStream.on('error', reject);
+  });
+}
 
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+async function writeExcelFile(filePath, rows, columns) {
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: filePath, useStyles: true });
   const sheet = workbook.addWorksheet('Export');
   sheet.columns = columns.map((c) => ({ header: c.label, key: c.key, width: 22 }));
   sheet.getRow(1).font = { bold: true };
@@ -34,18 +54,29 @@ export async function streamExcel(res, filename, rows, columns) {
   await workbook.commit();
 }
 
-export function sendJson(res, filename, rows) {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
-  res.status(200).json(rows);
-}
-
-function flatten(obj, path) {
-  const value = path.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
+function flatten(obj, fieldPath) {
+  const value = fieldPath.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
   if (value == null) return '';
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object') return JSON.stringify(value);
   return value;
 }
 
-export default { streamCsv, streamExcel, sendJson };
+export function contentTypeFor(format) {
+  if (format === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (format === 'json') return 'application/json; charset=utf-8';
+  return 'text/csv; charset=utf-8';
+}
+
+/** Streams an already-generated file on disk back to the client. */
+export function streamFileDownload(res, filePath, downloadName, contentType) {
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', () => {
+    if (!res.headersSent) res.status(404).end('File not found');
+  });
+  stream.pipe(res);
+}
+
+export default { writeExportFile, contentTypeFor, streamFileDownload };

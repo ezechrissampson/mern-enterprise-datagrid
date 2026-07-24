@@ -36,6 +36,7 @@ export const env = {
   RATE_LIMIT_MAX: toInt('RATE_LIMIT_MAX', 300),
   EXPORT_MAX_ROWS: toInt('EXPORT_MAX_ROWS', 50_000),
   MAX_PAGE_SIZE: toInt('MAX_PAGE_SIZE', 500),
+  EXPORT_STORAGE_DIR: process.env.EXPORT_STORAGE_DIR || '',
   isProd: (process.env.NODE_ENV || 'development') === 'production',
 };
 

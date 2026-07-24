@@ -32,6 +32,10 @@ export function buildDataGridRouter({ authenticate, buildRowScope } = {}) {
 
   const { resourceParam, idParam, listQuery, bulkBody, bulkUpdateBody, exportQuery, handleValidation } = validators;
 
+  // Literal path — must be registered before the `/:resource` routes below
+  // so it isn't swallowed by the `:resource` param pattern.
+  router.get('/resources', controller.listDataGridResources);
+
   router.get(
     '/:resource/meta',
     resourceParam,

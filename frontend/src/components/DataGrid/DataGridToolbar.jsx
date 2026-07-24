@@ -18,6 +18,7 @@ export function DataGridToolbar({
   onExport,
   canExport,
   selectionCount,
+  onSaveView,
 }) {
   return (
     <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -64,6 +65,13 @@ export function DataGridToolbar({
           </button>
         ))}
       </div>
+
+      {onSaveView && (
+        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={onSaveView}>
+          <i className="bi bi-bookmark-plus me-1" />
+          Save view
+        </button>
+      )}
 
       {canExport && (
         <div className="dropdown ms-auto">
